@@ -3,7 +3,6 @@ package render
 import (
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -779,7 +778,25 @@ func label(parts ...string) string {
 	if short, ok := abbreviations[kind]; ok {
 		kind = short
 	}
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(strings.Join(parts, "\x00")))
-	return fmt.Sprintf("tbl-%s-%08x", kind, hash.Sum32())
+	var components []string
+	for i, part := range parts {
+		if i != 1 {
+			components = append(components, labelComponent(part))
+		}
+	}
+	return "tbl-" + kind + "-" + strings.Join(components, ":")
+}
+
+// Escape unsafe bytes and the escape marker to preserve distinct IDs.
+func labelComponent(value string) string {
+	var b strings.Builder
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "_%02x_", c)
+		}
+	}
+	return b.String()
 }

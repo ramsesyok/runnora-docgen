@@ -207,13 +207,14 @@ func Generate(ctx context.Context, opts Options) (*Result, error) {
 			return nil, err
 		}
 		scenarioID := ""
-		// Keep scenario.ID based on the filename so generated table labels stay stable.
+		// Use the explicit runnora ID for labels and a filesystem-safe folder name.
 		folderID := scenario.ID
 		if block != nil {
 			scenarioID = block.ID
 			if strings.TrimSpace(scenarioID) == "" {
 				return nil, fmt.Errorf("%s: runnora.id が空です", in.path)
 			}
+			scenario.ID = scenarioID
 			folderID = source.OutputID(scenarioID)
 		}
 		makePathsPortable(scenario, in.opts.BaseDir)
