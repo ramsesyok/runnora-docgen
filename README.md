@@ -68,6 +68,10 @@ C:\tools\runnora-docgen.exe generate --env unit --out docs\generated\one runbook
 
 既存の文書で生成原稿を Quarto の `include` から参照している場合、`runnora.id` によってフォルダ名が変わると参照パスの更新が必要です。`--force` は新しい出力先を上書きしますが、以前のフォルダは削除しません。
 
+表の `label` はハッシュではなく `runnora.id` を直接使います（例：`tbl-scn-ORD-001`、`tbl-http-ORD-001`、手順 `create` のリクエスト表は `tbl-req-ORD-001:create`）。表種別は `scn`、`case`、`http`、`grpc`、`req`、`greq`、`exp`、`pre`、`post` です。英数字・ハイフン以外の文字は UTF-8 の各バイトを `_xx_` にエスケープします。指定がなければファイル名由来のIDを使います。異なる `runnora.id` を設定すれば、各フォルダのファイル名をすべて `runbook.yml` にできます。別々に生成して文書へまとめる場合も、文書全体でIDを一意にしてください。
+
+この変更により既存のlabelは変わるため、生成原稿を再生成し、手書きの `@tbl-...` 参照も更新してください。
+
 前処理・後処理の表には、`runnora run` と同じ順で SQL を載せます。
 
 - 前処理：環境の `hooks.before` → スイートの `hooks.before` → runbook の `runnora:` ブロックの `before`

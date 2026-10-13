@@ -321,3 +321,58 @@ func TestGenerateRejectsCollidingNormalizedRunnoraIDs(t *testing.T) {
 		t.Fatalf("output was written before collision check: %v", err)
 	}
 }
+
+func TestGenerateSameFilenameWithDistinctRunnoraIDs(t *testing.T) {
+	dir := t.TempDir()
+	var paths []string
+	for _, id := range []string{"ORD-001", "USR-001"} {
+		folder := filepath.Join(dir, id)
+		if err := os.MkdirAll(folder, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(folder, "runbook.yml")
+		content := "runnora:\n  id: " + id + "\nrunners:\n  req: {endpoint: http://example.test}\nsteps:\n  create:\n    req:\n      /items:\n        post:\n          body:\n            application/json: {name: item}\n    test: current.res.status == 200\n"
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, path)
+	}
+	out := filepath.Join(dir, "generated")
+	opts := Options{RunbookPaths: paths, OutputDir: out, ShowJSONDetail: true}
+	if _, err := Generate(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"ORD-001", "USR-001"} {
+		for file, labels := range map[string][]string{
+			"scenario.qmd":     {`label="tbl-scn-` + id + `"`, "@tbl-http-" + id, "@tbl-req-" + id + ":create", "@tbl-exp-" + id + ":create"},
+			"http.qmd":         {`label="tbl-http-` + id + `"`},
+			"request-json.qmd": {`label="tbl-req-` + id + `:create"`},
+			"expectations.qmd": {`label="tbl-exp-` + id + `:create"`},
+		} {
+			data, err := os.ReadFile(filepath.Join(out, strings.ToLower(id), file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, label := range labels {
+				if !strings.Contains(string(data), label) {
+					t.Errorf("%s/%s missing %s", id, file, label)
+				}
+			}
+		}
+	}
+	// Duplicate explicit IDs must fail before any output is written.
+	data, err := os.ReadFile(paths[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths[1], []byte(strings.ReplaceAll(string(data), "USR-001", "ORD-001")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts.OutputDir = filepath.Join(dir, "duplicate")
+	if _, err := Generate(context.Background(), opts); err == nil || !strings.Contains(err.Error(), "重複") {
+		t.Fatalf("duplicate ID error = %v", err)
+	}
+	if _, err := os.Stat(opts.OutputDir); !os.IsNotExist(err) {
+		t.Fatalf("output written on duplicate: %v", err)
+	}
+}
