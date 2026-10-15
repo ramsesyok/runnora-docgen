@@ -94,8 +94,10 @@ func renderScenarioWithDetail(scenario *model.Scenario, filenames bool) string {
 			}
 		case model.StepDB:
 			detail += "\\\nDB query"
+		case model.StepExec:
+			detail += "\\\nコマンド：" + markdownCode(step.ExecCommand)
 		case model.StepBind:
-			detail += "\\\n変数を設定"
+			detail += "\\\n変数設定：" + codeLines(formatBindings(step.Bind))
 		case model.StepTest:
 			detail += "\\\n検証のみ"
 		}
@@ -129,6 +131,9 @@ func renderScenarioWithDetail(scenario *model.Scenario, filenames bool) string {
 			}
 			status += "@" + label(scenario.ID, "expect", step.ID)
 		}
+		if strings.TrimSpace(step.Test) != "" && status == "" {
+			status = "期待値：\\\n" + codeLines(wrapExpression(breakConditions(strings.TrimSpace(step.Test)), 28))
+		}
 		if filenames {
 			body := formatBodyRefs(step.ResponseBodyJSONRefs)
 			if body == "" && step.HasResponseBodyCheck {
@@ -143,12 +148,94 @@ func renderScenarioWithDetail(scenario *model.Scenario, filenames bool) string {
 		} else {
 			status = appendJSONFiles(status, step.ExpectationJSONFiles)
 		}
+		if strings.TrimSpace(step.Test) == "" {
+			status = "ー"
+		}
 		rows = append(rows, []string{strconv.Itoa(step.Number), detail, requestReference, status, ""})
 	}
 	return generatedHeader(scenario) +
 		"::: {.landscape}\n" +
 		fmt.Sprintf("::: {.tbl caption=\"テストシナリオ\" label=\"%s\" widths=\"8,46,20,20,6\" breakable-rows=\"true\"}\n", label(scenario.ID, "scenario")) +
 		scenarioGrid(scenario.Name, rows, []int{8, 54, 24, 30, 8}, alignCenter, alignLeft, alignLeft, alignLeft, alignCenter) + ":::\n:::\n"
+}
+
+func formatBindings(bindings map[string]string) string {
+	keys := make([]string, 0, len(bindings))
+	for key := range bindings {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		lines = append(lines, wrapExpression(key+" = "+strings.TrimSpace(bindings[key]), 48))
+	}
+	return strings.Join(lines, "\\\n")
+}
+
+func codeLines(value string) string {
+	if value == "" {
+		return ""
+	}
+	parts := strings.Split(value, "\\\n")
+	for i, part := range parts {
+		parts[i] = markdownCode(part)
+	}
+	return strings.Join(parts, "\\\n")
+}
+
+func markdownCode(value string) string {
+	if value == "" {
+		return ""
+	}
+	longest := 0
+	for _, run := range strings.FieldsFunc(value, func(r rune) bool { return r != '`' }) {
+		longest = max(longest, len(run))
+	}
+	fence := strings.Repeat("`", longest+1)
+	if strings.HasPrefix(value, "`") || strings.HasSuffix(value, "`") {
+		return fence + " " + value + " " + fence
+	}
+	return fence + value + fence
+}
+
+// wrapExpression inserts hard line breaks at dotted path boundaries. Grid
+// tables otherwise keep a long variable reference as one word, while the
+// document template still assigns the column a fixed percentage width.
+func wrapExpression(expression string, maxWidth int) string {
+	var lines []string
+	for _, sourceLine := range strings.Split(expression, "\\\n") {
+		for displayWidth(sourceLine) > maxWidth {
+			breakAt, quoted, escaped := -1, byte(0), false
+			for i := 0; i < len(sourceLine); i++ {
+				character := sourceLine[i]
+				if quoted != 0 {
+					if character == '\\' && !escaped {
+						escaped = true
+						continue
+					}
+					if character == quoted && !escaped {
+						quoted = 0
+					}
+					escaped = false
+					continue
+				}
+				if character == '"' || character == '\'' || character == '`' {
+					quoted = character
+					continue
+				}
+				if (character == '.' || character == '_') && displayWidth(sourceLine[:i+1]) <= maxWidth {
+					breakAt = i + 1
+				}
+			}
+			if breakAt < 1 || breakAt == len(sourceLine) {
+				break
+			}
+			lines = append(lines, sourceLine[:breakAt])
+			sourceLine = sourceLine[breakAt:]
+		}
+		lines = append(lines, sourceLine)
+	}
+	return strings.Join(lines, "\\\n")
 }
 
 // Keep filenames literal (including underscores and brackets) in Markdown cells.
@@ -394,7 +481,7 @@ func renderExpectations(scenario *model.Scenario) string {
 		if step.Test == "" {
 			continue
 		}
-		rows := [][]string{{"検証式", sourceLocation(step.SourcePath, step.SourceLine), breakConditions(step.Test)}}
+		rows := [][]string{{"検証式", sourceLocation(step.SourcePath, step.SourceLine), codeLines(wrapExpression(breakConditions(step.Test), 60))}}
 		if step.Status.Value != "" {
 			rows = append(rows, []string{"ステータス", "検証式から抽出", step.Status.Protocol + " " + step.Status.Value})
 		}
@@ -591,8 +678,8 @@ func headerCell(value any) string {
 	return strings.Join(members, "\\\n")
 }
 
-// breakConditions adds a visible line break after each logical AND, while
-// leaving && inside string literals untouched.
+// breakConditions adds a visible line break after logical operators, while
+// leaving operators inside string literals untouched.
 func breakConditions(expression string) string {
 	var parts []string
 	start := 0
@@ -615,8 +702,8 @@ func breakConditions(expression string) string {
 			quote = character
 			continue
 		}
-		if character == '&' && i+1 < len(expression) && expression[i+1] == '&' {
-			parts = append(parts, strings.TrimSpace(expression[start:i])+" &&")
+		if i+1 < len(expression) && ((character == '&' && expression[i+1] == '&') || (character == '|' && expression[i+1] == '|')) {
+			parts = append(parts, strings.TrimSpace(expression[start:i])+" "+expression[i:i+2])
 			i++
 			start = i + 1
 		}
