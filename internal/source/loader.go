@@ -313,6 +313,10 @@ func parseStep(id string, n *yaml.Node, sourcePath string, runners []runnerInfo,
 		}
 		break
 	}
+	if exec := mappingValue(n, "exec"); exec != nil {
+		step.Kind = model.StepExec
+		step.ExecCommand = scalar(mappingValue(exec, "command"))
+	}
 	if bind := mappingValue(n, "bind"); bind != nil {
 		step.Kind = model.StepBind
 		step.Bind = stringMap(bind)

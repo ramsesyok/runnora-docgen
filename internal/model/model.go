@@ -27,6 +27,7 @@ type Step struct {
 	HTTP                 *HTTPRequest
 	GRPC                 *GRPCRequest
 	DBQuery              string
+	ExecCommand          string
 	Bind                 map[string]string
 	Test                 string
 	Status               StatusExpectation
@@ -59,6 +60,7 @@ const (
 	StepHTTP    StepKind = "http"
 	StepGRPC    StepKind = "grpc"
 	StepDB      StepKind = "db"
+	StepExec    StepKind = "exec"
 	StepBind    StepKind = "bind"
 	StepInclude StepKind = "include"
 	StepTest    StepKind = "test"

@@ -51,6 +51,63 @@ func TestScenarioExpectationWithoutLiteralStatus(t *testing.T) {
 	}
 }
 
+func TestScenarioWithoutTestUsesDash(t *testing.T) {
+	scenario := &model.Scenario{ID: "no-test", Steps: []model.Step{
+		{ID: "request", Number: 1, Kind: model.StepHTTP, HTTP: &model.HTTPRequest{}},
+		{ID: "bind", Number: 2, Kind: model.StepBind, Bind: map[string]string{"z": "steps.request.res.body.id", "a": "vars.case.name"}},
+	}}
+	for _, filenames := range []bool{false, true} {
+		got := renderScenarioWithDetail(scenario, filenames)
+		if strings.Count(got, "| ー ") != 2 {
+			t.Fatalf("missing expected dashes (filenames=%v):\n%s", filenames, got)
+		}
+		if !strings.Contains(got, "変数設定：`a = vars.case.name`") || !strings.Contains(got, "z = steps.request.res.body.id") {
+			t.Fatalf("bind expressions missing (filenames=%v):\n%s", filenames, got)
+		}
+		if strings.Index(got, "a = vars.case.name") > strings.Index(got, "z = steps.request.res.body.id") {
+			t.Fatalf("bind order is unstable:\n%s", got)
+		}
+	}
+}
+
+func TestExecScenarioShowsCommandAndTest(t *testing.T) {
+	scenario := &model.Scenario{ID: "exec", Steps: []model.Step{{
+		ID: "compare", Number: 1, Kind: model.StepExec,
+		ExecCommand: "runnora-diff expected.json -",
+		Test:        `current.exit_code == 0 && current.stderr == ""`,
+	}}}
+	got := renderScenarioWithDetail(scenario, true)
+	for _, want := range []string{"コマンド：`runnora-diff expected.json -`", "期待値：", "`current.exit_code == 0 &&`", `current.stderr == ""`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestLongVariableReferencesBreakAtPathBoundaries(t *testing.T) {
+	value := "steps.create_order.res.body.customer_account_identifier"
+	got := wrapExpression("order_id = "+value, 28)
+	if !strings.Contains(got, "\\\n") || strings.ReplaceAll(got, "\\\n", "") != "order_id = "+value {
+		t.Fatalf("variable reference was not wrapped intact: %q", got)
+	}
+	for _, line := range strings.Split(got, "\\\n") {
+		if displayWidth(line) > 28 {
+			t.Fatalf("expression line is too wide: %q", line)
+		}
+	}
+	quoted := `current.stdout == "version_1.2"`
+	if got := wrapExpression(quoted, 12); strings.Contains(got, `version_\`) || strings.Contains(got, `1.\`) {
+		t.Fatalf("quoted value was split: %q", got)
+	}
+}
+
+func TestBreakConditionsPreservesQuotedLogicalOperators(t *testing.T) {
+	got := breakConditions(`current.stdout == "a||b" || current.exit_code == 0`)
+	if got != `current.stdout == "a||b" ||\`+"\n"+`current.exit_code == 0` {
+		t.Fatalf("logical OR was not broken correctly: %q", got)
+	}
+}
+
 func TestHooksListFileNamesWithoutSQLBody(t *testing.T) {
 	scenario := &model.Scenario{
 		ID: "hooks", Name: "前後処理",
@@ -105,7 +162,7 @@ func TestExpectationConditionBreaksAndJSONLabel(t *testing.T) {
 		ExpectationJSONData: []model.JSONData{{Path: "fixtures/expect.json", Value: map[string]any{"ok": true}}},
 	}}}
 	got := renderExpectations(scenario)
-	for _, want := range []string{`widths="10,20,62"`, "期待値JSON", "expect.json", `200 &&\`, `"a&&b" &&\`} {
+	for _, want := range []string{`widths="10,20,62"`, "期待値JSON", "expect.json", "200 &&", `"a&&b" &&`} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q:\n%s", want, got)
 		}
