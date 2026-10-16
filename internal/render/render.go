@@ -124,7 +124,7 @@ func renderScenarioWithDetail(scenario *model.Scenario, filenames bool) string {
 			if step.Status.Protocol == "gRPC" {
 				status = "gRPC " + status
 			}
-			status = "期待値：\\[" + status + "\\]"
+			status = wrapExpression(markdownFile("期待値：["+status+"]"), 28)
 		}
 		if step.Test != "" && !filenames {
 			if status != "" {

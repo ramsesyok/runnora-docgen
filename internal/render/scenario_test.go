@@ -51,6 +51,23 @@ func TestScenarioExpectationWithoutLiteralStatus(t *testing.T) {
 	}
 }
 
+func TestScenarioWrapsIndexedStatusVariable(t *testing.T) {
+	scenario := &model.Scenario{ID: "review", Steps: []model.Step{{
+		ID: "check", Number: 1, Kind: model.StepTest,
+		Test:   "current.res.status == vars.case13.expect[i].status",
+		Status: model.StatusExpectation{Protocol: "HTTP", Variable: "vars.case13.expect[i].status"},
+	}}}
+	for _, filenames := range []bool{false, true} {
+		got := renderScenarioWithDetail(scenario, filenames)
+		if !strings.Contains(got, `期待値：\[vars.case13.\`) || !strings.Contains(got, `expect\[i\].status\]`) {
+			t.Fatalf("status variable was not wrapped at a path boundary (filenames=%v):\n%s", filenames, got)
+		}
+		if !strings.Contains(got, fullBorder([]int{8, 54, 24, 30, 8}, '-')) {
+			t.Fatalf("status variable widened the scenario table (filenames=%v):\n%s", filenames, got)
+		}
+	}
+}
+
 func TestScenarioWithoutTestUsesDash(t *testing.T) {
 	scenario := &model.Scenario{ID: "no-test", Steps: []model.Step{
 		{ID: "request", Number: 1, Kind: model.StepHTTP, HTTP: &model.HTTPRequest{}},
