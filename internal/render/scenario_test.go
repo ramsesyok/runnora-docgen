@@ -154,10 +154,10 @@ func TestHTTPTableShowsQueryPerLine(t *testing.T) {
 	scenario := &model.Scenario{ID: "query", Steps: []model.Step{{
 		ID: "search", Number: 1, Kind: model.StepHTTP,
 		HTTP: &model.HTTPRequest{Endpoint: "http://example.test", Method: "GET", Path: "/books",
-			Query: "genre=NOVEL&availableOnly=", Headers: map[string]any{"X-Test-Case": "search", "X-Values": "one,two"}},
+			Query: "genre=NOVEL&availableOnly=&optional=null", Headers: map[string]any{"X-Test-Case": "search", "X-Values": "one,two"}},
 	}}}
 	got := renderHTTP(scenario)
-	for _, want := range []string{`widths="6,8,40,23,23"`, "http://example.test/books", `genre=NOVEL\`, "availableOnly=", `"X-Test-Case":"search",\`, `"X-Values":"one,two"`} {
+	for _, want := range []string{`widths="6,8,40,23,23"`, "http://example.test/books", `genre=NOVEL\`, "availableOnly=", "optional=null", `"X-Test-Case":"search",\`, `"X-Values":"one,two"`} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q:\n%s", want, got)
 		}

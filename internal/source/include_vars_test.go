@@ -124,6 +124,61 @@ steps:
 	}
 }
 
+func TestLoadIncludeVarsDisplaysNullQueryValues(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "suite.yml"), `steps:
+  scenario:
+    include:
+      path: template.yml
+      vars:
+        case: json://case.json
+`)
+	writeTestFile(t, filepath.Join(dir, "template.yml"), `runners:
+  req:
+    endpoint: http://example.test
+steps:
+  embedded:
+    req:
+      /books?name={{ vars.case.queryParams.name }}&page={{ vars.case.queryParams.page }}:
+        get: {}
+  whole:
+    req:
+      /books:
+        get:
+          query: "{{ vars.case.queryParams.name }}"
+  mapping:
+    req:
+      /books:
+        get:
+          query:
+            name: "{{ vars.case.queryParams.name }}"
+            inline: "name={{ vars.case.queryParams.name }}"
+  missing:
+    req:
+      /books?name={{ vars.case.queryParams.absent }}:
+        get: {}
+`)
+	writeTestFile(t, filepath.Join(dir, "case.json"), `{"queryParams":{"name":null,"page":2}}`)
+
+	scenario, _, err := Load(filepath.Join(dir, "suite.yml"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := scenario.Steps[0].HTTP.Query; got != "name=null&page=2" {
+		t.Fatalf("embedded query = %#v", got)
+	}
+	if got := scenario.Steps[1].HTTP.Query; got != "null" {
+		t.Fatalf("whole query = %#v", got)
+	}
+	mapping := scenario.Steps[2].HTTP.Query.(map[string]any)
+	if mapping["name"] != nil || mapping["inline"] != "name=null" {
+		t.Fatalf("mapping query = %#v", mapping)
+	}
+	if got := scenario.Steps[3].HTTP.Query; got != "name={{ vars.case.queryParams.absent }}" {
+		t.Fatalf("missing variable query = %#v", got)
+	}
+}
+
 func TestLoadIncludeVarsRejectsMissingJSON(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "suite.yml"), `desc: suite

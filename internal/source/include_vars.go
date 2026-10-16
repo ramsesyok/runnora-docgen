@@ -66,7 +66,7 @@ func (v includeVars) apply(step *model.Step) {
 	}
 	if step.HTTP != nil {
 		step.HTTP.Path = fmt.Sprint(v.substitute(step.HTTP.Path))
-		step.HTTP.Query = v.substitute(step.HTTP.Query)
+		step.HTTP.Query = v.substituteQuery(step.HTTP.Query)
 		step.HTTP.Headers = v.substitute(step.HTTP.Headers)
 		step.RequestJSONFiles = append(step.RequestJSONFiles, v.referencedFiles(step.HTTP.Body)...)
 		step.RequestJSONRefs = appendRefs(step.RequestJSONRefs, v.refsForVars(varPaths(step.HTTP.Body)))
@@ -86,6 +86,52 @@ func (v includeVars) apply(step *model.Step) {
 	step.ExpectationJSONFiles = append(step.ExpectationJSONFiles, v.referencedFiles("{{"+step.Test+"}}")...)
 	step.ResponseBodyJSONRefs = appendRefs(step.ResponseBodyJSONRefs, v.refsForVars(responseBodyVarPaths(step.Test)))
 	step.ExpectationJSONData = append(step.ExpectationJSONData, v.expectationData(step.Test)...)
+}
+
+// substituteQuery displays an explicit null value in the HTTP Query column.
+// Other request fields keep the usual substitution behavior.
+func (v includeVars) substituteQuery(value any) any {
+	return v.substituteQueryValue(value, true)
+}
+
+func (v includeVars) substituteQueryValue(value any, topLevel bool) any {
+	switch query := value.(type) {
+	case string:
+		if match := wholeVarExpression.FindStringSubmatch(query); match != nil {
+			if resolved, found := v.lookup(match[1]); found {
+				if resolved == nil && topLevel {
+					return "null"
+				}
+				return resolved
+			}
+			return query
+		}
+		return embeddedVarPattern.ReplaceAllStringFunc(query, func(expression string) string {
+			path := embeddedVarPattern.FindStringSubmatch(expression)[1]
+			if resolved, found := v.lookup(path); found {
+				if resolved == nil {
+					return "null"
+				}
+				if isScalar(resolved) {
+					return valueString(resolved)
+				}
+			}
+			return expression
+		})
+	case map[string]any:
+		result := make(map[string]any, len(query))
+		for key, child := range query {
+			result[key] = v.substituteQueryValue(child, false)
+		}
+		return result
+	case []any:
+		result := make([]any, len(query))
+		for index, child := range query {
+			result[index] = v.substituteQueryValue(child, false)
+		}
+		return result
+	}
+	return value
 }
 
 // substitute replaces {{ vars.x.y }} with the included value. A string that is
