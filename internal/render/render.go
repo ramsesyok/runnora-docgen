@@ -95,9 +95,12 @@ func renderScenarioWithDetail(scenario *model.Scenario, filenames bool) string {
 		case model.StepDB:
 			detail += "\\\nDB query"
 		case model.StepExec:
-			detail += "\\\nコマンド：" + markdownCode(step.ExecCommand)
+			detail += "\\\nコマンド：" + plainLines(step.ExecCommand)
 		case model.StepBind:
-			detail += "\\\n変数設定：" + codeLines(formatBindings(step.Bind))
+			detail += "\\\n変数設定："
+			if bindings := formatBindings(step.Bind); bindings != "" {
+				detail += "\\\n" + plainLines(bindings)
+			}
 		case model.StepTest:
 			detail += "\\\n検証のみ"
 		}
@@ -132,7 +135,7 @@ func renderScenarioWithDetail(scenario *model.Scenario, filenames bool) string {
 			status += "@" + label(scenario.ID, "expect", step.ID)
 		}
 		if strings.TrimSpace(step.Test) != "" && status == "" {
-			status = "期待値：\\\n" + codeLines(wrapExpression(breakConditions(strings.TrimSpace(step.Test)), 28))
+			status = "期待値：\\\n" + plainLines(wrapExpression(breakConditions(strings.TrimSpace(step.Test)), 28))
 		}
 		if filenames {
 			body := formatBodyRefs(step.ResponseBodyJSONRefs)
@@ -172,30 +175,17 @@ func formatBindings(bindings map[string]string) string {
 	return strings.Join(lines, "\\\n")
 }
 
-func codeLines(value string) string {
+// plainLines keeps hard line breaks while escaping Markdown formatting in
+// command, bind, and test expressions shown in ordinary document text.
+func plainLines(value string) string {
 	if value == "" {
 		return ""
 	}
 	parts := strings.Split(value, "\\\n")
 	for i, part := range parts {
-		parts[i] = markdownCode(part)
+		parts[i] = markdownFile(part)
 	}
 	return strings.Join(parts, "\\\n")
-}
-
-func markdownCode(value string) string {
-	if value == "" {
-		return ""
-	}
-	longest := 0
-	for _, run := range strings.FieldsFunc(value, func(r rune) bool { return r != '`' }) {
-		longest = max(longest, len(run))
-	}
-	fence := strings.Repeat("`", longest+1)
-	if strings.HasPrefix(value, "`") || strings.HasSuffix(value, "`") {
-		return fence + " " + value + " " + fence
-	}
-	return fence + value + fence
 }
 
 // wrapExpression inserts hard line breaks at dotted path boundaries. Grid
@@ -481,7 +471,7 @@ func renderExpectations(scenario *model.Scenario) string {
 		if step.Test == "" {
 			continue
 		}
-		rows := [][]string{{"検証式", sourceLocation(step.SourcePath, step.SourceLine), codeLines(wrapExpression(breakConditions(step.Test), 60))}}
+		rows := [][]string{{"検証式", sourceLocation(step.SourcePath, step.SourceLine), plainLines(wrapExpression(breakConditions(step.Test), 60))}}
 		if step.Status.Value != "" {
 			rows = append(rows, []string{"ステータス", "検証式から抽出", step.Status.Protocol + " " + step.Status.Value})
 		}

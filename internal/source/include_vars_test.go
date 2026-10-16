@@ -144,6 +144,48 @@ steps:
 	}
 }
 
+func TestTraceHTTPStepReportsReferenceOriginsWithoutValues(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "runbook.yml"), `steps:
+  scenario:
+    include:
+      path: scenario.yml
+      vars:
+        case2: json://case2.json
+`)
+	writeTestFile(t, filepath.Join(dir, "scenario.yml"), `runners:
+  req:
+    endpoint: http://example.test
+steps:
+  setup:
+    bind:
+      upload: multipart()
+  case2:
+    req:
+      /books/{{ vars.case2.pathParams.id }}?id={{ vars.case2.queryParams.id }}:
+        get:
+          headers: "{{ vars.case2.headers }}"
+`)
+	writeTestFile(t, filepath.Join(dir, "case2.json"), `{"pathParams":{"id":"B2"},"queryParams":{"id":"{{ vars.case1.queryParams.id }}"},"headers":"{{ vars.case1.headers }}"}`)
+	_, warnings, err := Load(filepath.Join(dir, "runbook.yml"), Options{TraceHTTPStep: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(warnings, "\n")
+	for _, want := range []string{
+		"HTTP 手順 2 (scenario.case2",
+		"Query: 読込時=[vars.case2.queryParams.id]、生成時に残る参照=[vars.case1.queryParams.id]",
+		"Headers: 読込時=[vars.case2.headers]、生成時に残る参照=[vars.case1.headers]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("trace missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "B2") {
+		t.Fatalf("trace contains a resolved value:\n%s", got)
+	}
+}
+
 func assertBaseNames(t *testing.T, what string, paths []string, want ...string) {
 	t.Helper()
 	got := map[string]bool{}

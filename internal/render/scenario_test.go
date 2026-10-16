@@ -61,8 +61,17 @@ func TestScenarioWithoutTestUsesDash(t *testing.T) {
 		if strings.Count(got, "| ー ") != 2 {
 			t.Fatalf("missing expected dashes (filenames=%v):\n%s", filenames, got)
 		}
-		if !strings.Contains(got, "変数設定：`a = vars.case.name`") || !strings.Contains(got, "z = steps.request.res.body.id") {
+		if !strings.Contains(got, "変数設定：") || !strings.Contains(got, "a = vars.case.name") || !strings.Contains(got, "z = steps.request.res.body.id") || strings.Contains(got, "`a =") {
 			t.Fatalf("bind expressions missing (filenames=%v):\n%s", filenames, got)
+		}
+		lines := strings.Split(got, "\n")
+		for i, line := range lines {
+			if strings.Contains(line, "変数設定：") {
+				if i+1 >= len(lines) || !strings.Contains(lines[i+1], "a = vars.case.name") {
+					t.Fatalf("bind expression is not on the next line (filenames=%v):\n%s", filenames, got)
+				}
+				break
+			}
 		}
 		if strings.Index(got, "a = vars.case.name") > strings.Index(got, "z = steps.request.res.body.id") {
 			t.Fatalf("bind order is unstable:\n%s", got)
@@ -77,10 +86,13 @@ func TestExecScenarioShowsCommandAndTest(t *testing.T) {
 		Test:        `current.exit_code == 0 && current.stderr == ""`,
 	}}}
 	got := renderScenarioWithDetail(scenario, true)
-	for _, want := range []string{"コマンド：`runnora-diff expected.json -`", "期待値：", "`current.exit_code == 0 &&`", `current.stderr == ""`} {
+	for _, want := range []string{"コマンド：runnora-diff expected.json -", "期待値：", "current.exit\\_code == 0 &&", `current.stderr == ""`} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "`") {
+		t.Fatalf("command or expectation is formatted as inline code:\n%s", got)
 	}
 }
 
@@ -166,6 +178,9 @@ func TestExpectationConditionBreaksAndJSONLabel(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "`") {
+		t.Fatalf("expectation is formatted as inline code:\n%s", got)
 	}
 	if strings.Contains(got, `"a&\`) {
 		t.Fatalf("a string literal was split:\n%s", got)

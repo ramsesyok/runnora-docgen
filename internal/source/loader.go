@@ -22,6 +22,8 @@ type Options struct {
 	AfterSQL   []string
 	ProtoPaths []string
 	BaseDir    string
+	// TraceHTTPStep reports only variable paths (never values) for one HTTP step.
+	TraceHTTPStep int
 	// ProjectPath は新形式の runnora.yaml (出典として記録する)。
 	// ProjectBefore / ProjectAfter は runnora.yaml の環境・スイートと runbook の runnora: ブロックから
 	// 決めた前後処理 (絶対パス、runnora run の実行順)。BeforeSQL / AfterSQL はその内側に加える。
@@ -34,6 +36,7 @@ type loader struct {
 	opts     Options
 	stack    map[string]bool
 	warnings []string
+	httpRefs map[*model.HTTPRequest]httpVariableRefs
 	// includeSources は include したファイル (template と vars の json://) の出典。
 	// 取り込んだ runbook の Sources に加える。
 	includeSources []model.SourceRef
@@ -46,13 +49,25 @@ type runnerInfo struct {
 	protos   []string
 }
 
+type httpVariableRefs struct {
+	path    []string
+	query   []string
+	headers []string
+}
+
 var statusPattern = regexp.MustCompile(`(?:current|steps\.[A-Za-z0-9_-]+)\.res\.status\s*==\s*([^\s&|)]+)`)
 
 func Load(path string, opts Options) (*model.Scenario, []string, error) {
 	l := &loader{opts: opts, stack: map[string]bool{}}
+	if opts.TraceHTTPStep > 0 {
+		l.httpRefs = make(map[*model.HTTPRequest]httpVariableRefs)
+	}
 	scenario, err := l.loadRunbook(path)
 	if err != nil {
 		return nil, l.warnings, err
+	}
+	if opts.TraceHTTPStep > 0 {
+		l.traceHTTPStep(scenario, opts.TraceHTTPStep)
 	}
 	before, after, hookWarnings, err := loadHooks(opts)
 	l.warnings = append(l.warnings, hookWarnings...)
@@ -75,6 +90,25 @@ func Load(path string, opts Options) (*model.Scenario, []string, error) {
 		addSource(scenario, model.SourceRef{Kind: asset.Origin + "-sql", Path: asset.Path, SHA256: asset.SHA256})
 	}
 	return scenario, l.warnings, nil
+}
+
+func (l *loader) traceHTTPStep(scenario *model.Scenario, number int) {
+	for _, step := range scenario.Steps {
+		if step.Number != number {
+			continue
+		}
+		if step.HTTP == nil {
+			l.warnings = append(l.warnings, fmt.Sprintf("HTTP 手順 %d は HTTP 呼び出しではありません (%s)", number, step.Key))
+			return
+		}
+		raw := l.httpRefs[step.HTTP]
+		l.warnings = append(l.warnings, fmt.Sprintf("HTTP 手順 %d (%s、%s:%d) の変数参照。値は表示しません", number, step.Key, step.SourcePath, step.SourceLine))
+		l.warnings = append(l.warnings, fmt.Sprintf("  URL: 読込時=%v、生成時に残る参照=%v", raw.path, varPaths(step.HTTP.Path)))
+		l.warnings = append(l.warnings, fmt.Sprintf("  Query: 読込時=%v、生成時に残る参照=%v", raw.query, varPaths(step.HTTP.Query)))
+		l.warnings = append(l.warnings, fmt.Sprintf("  Headers: 読込時=%v、生成時に残る参照=%v", raw.headers, varPaths(step.HTTP.Headers)))
+		return
+	}
+	l.warnings = append(l.warnings, fmt.Sprintf("HTTP 手順 %d はありません", number))
 }
 
 func (l *loader) loadRunbook(path string) (*model.Scenario, error) {
@@ -267,6 +301,13 @@ func (l *loader) parseSteps(root *yaml.Node, sourcePath string, runners []runner
 			continue
 		}
 		step := parseStep(item.id, item.node, sourcePath, runners, protoTypes)
+		if l.httpRefs != nil && step.HTTP != nil {
+			l.httpRefs[step.HTTP] = httpVariableRefs{
+				path:    varPaths(step.HTTP.Path),
+				query:   varPaths(step.HTTP.Query),
+				headers: varPaths(step.HTTP.Headers),
+			}
+		}
 		step.Key = item.key
 		step.Loop = mappingValue(item.node, "loop") != nil
 		result = append(result, step)
