@@ -25,6 +25,7 @@ type Options struct {
 	BaseDir        string
 	Force          bool
 	ShowJSONDetail bool
+	TraceHTTPStep  int
 	// ProjectPath / Env / Suite は新形式 (runnora.yaml) の指定。
 	// ConfigPath がなければ runnora.yaml を現在のディレクトリから親へ探して使う。
 	// Suite を指定すると、runbook はスイートの条件で選ぶ (RunbookPaths は指定しない)。
@@ -42,11 +43,12 @@ type input struct {
 // planInputs は原稿にする runbook と、runbook ごとの前後処理を決める。
 func planInputs(opts Options) ([]input, []string, error) {
 	base := source.Options{
-		ConfigPath: opts.ConfigPath,
-		BeforeSQL:  opts.BeforeSQL,
-		AfterSQL:   opts.AfterSQL,
-		ProtoPaths: opts.ProtoPaths,
-		BaseDir:    opts.BaseDir,
+		ConfigPath:    opts.ConfigPath,
+		BeforeSQL:     opts.BeforeSQL,
+		AfterSQL:      opts.AfterSQL,
+		ProtoPaths:    opts.ProtoPaths,
+		BaseDir:       opts.BaseDir,
+		TraceHTTPStep: opts.TraceHTTPStep,
 	}
 	projectPath := opts.ProjectPath
 	if opts.ConfigPath != "" {
