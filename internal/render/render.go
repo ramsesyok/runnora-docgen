@@ -17,8 +17,14 @@ type Document struct {
 }
 
 func ScenarioDocuments(scenario *model.Scenario, showJSONDetail bool) []Document {
+	return ScenarioDocumentsWithResults(scenario, showJSONDetail, nil)
+}
+
+// ScenarioDocumentsWithResults は手順書と同じ表構成で良否欄を埋める。
+// results が nil の場合は従来どおり空欄の手順書を生成する。
+func ScenarioDocumentsWithResults(scenario *model.Scenario, showJSONDetail bool, results map[string]string) []Document {
 	filenames := !showJSONDetail
-	documents := []Document{{Name: "scenario.qmd", Content: []byte(renderScenarioWithDetail(scenario, filenames))}}
+	documents := []Document{{Name: "scenario.qmd", Content: []byte(renderScenarioWithResults(scenario, filenames, results))}}
 	cases := ""
 	if filenames {
 		cases = renderCasesFilenames(scenario)
@@ -77,6 +83,10 @@ func renderScenario(scenario *model.Scenario) string {
 }
 
 func renderScenarioWithDetail(scenario *model.Scenario, filenames bool) string {
+	return renderScenarioWithResults(scenario, filenames, nil)
+}
+
+func renderScenarioWithResults(scenario *model.Scenario, filenames bool, results map[string]string) string {
 	rows := make([][]string, 0, len(scenario.Steps))
 	for _, step := range scenario.Steps {
 		requestReference := ""
@@ -154,7 +164,7 @@ func renderScenarioWithDetail(scenario *model.Scenario, filenames bool) string {
 		if strings.TrimSpace(step.Test) == "" {
 			status = "ー"
 		}
-		rows = append(rows, []string{strconv.Itoa(step.Number), detail, requestReference, status, ""})
+		rows = append(rows, []string{strconv.Itoa(step.Number), detail, requestReference, status, results[step.Key]})
 	}
 	return generatedHeader(scenario) +
 		"::: {.landscape}\n" +

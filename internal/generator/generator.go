@@ -26,6 +26,8 @@ type Options struct {
 	Force          bool
 	ShowJSONDetail bool
 	TraceHTTPStep  int
+	// ReportPath は成績書に転記する runnora の report.json。省略時は手順書を生成する。
+	ReportPath string
 	// ProjectPath / Env / Suite は新形式 (runnora.yaml) の指定。
 	// ConfigPath がなければ runnora.yaml を現在のディレクトリから親へ探して使う。
 	// Suite を指定すると、runbook はスイートの条件で選ぶ (RunbookPaths は指定しない)。
@@ -127,8 +129,10 @@ func planInputs(opts Options) ([]input, []string, error) {
 			return nil, nil, err
 		}
 		if !block.AllowedIn(envName) {
-			warnings = append(warnings, fmt.Sprintf("%s: 環境 %s では実行しない runbook (runnora.envs) なので原稿を作りません", path, envName))
-			continue
+			if opts.ReportPath == "" {
+				warnings = append(warnings, fmt.Sprintf("%s: 環境 %s では実行しない runbook (runnora.envs) なので原稿を作りません", path, envName))
+				continue
+			}
 		}
 		o := base
 		// runnora run と同じ順: 環境 → スイート → runbook の before、runbook → スイート → 環境の after
@@ -151,6 +155,7 @@ func planInputs(opts Options) ([]input, []string, error) {
 type Result struct {
 	Files    []string
 	Warnings []string
+	Statuses []string
 }
 
 type plannedFile struct {
@@ -166,9 +171,21 @@ type manifest struct {
 	Source     string `json:"source"`
 	SHA256     string `json:"sha256"`
 	// Steps は手順書の手順番号と、runnora のステップのキーの対応。
-	Steps  []manifestStep `json:"steps"`
-	Files  []string       `json:"files"`
-	Inputs any            `json:"inputs"`
+	Steps     []manifestStep     `json:"steps"`
+	Files     []string           `json:"files"`
+	Inputs    any                `json:"inputs"`
+	Execution *manifestExecution `json:"execution,omitempty"`
+}
+
+type manifestExecution struct {
+	Report    string `json:"report"`
+	SHA256    string `json:"sha256"`
+	StartedAt string `json:"startedAt,omitempty"`
+	Runnora   string `json:"runnora,omitempty"`
+	Env       string `json:"env,omitempty"`
+	Suite     string `json:"suite,omitempty"`
+	Actual    string `json:"actual,omitempty"`
+	Passed    bool   `json:"passed"`
 }
 
 // manifestStep は手順 1 行分。loop のステップは手順書では 1 行なので、キーに [n] を付けず loop: true にする
@@ -180,12 +197,54 @@ type manifestStep struct {
 }
 
 func Generate(ctx context.Context, opts Options) (*Result, error) {
+	var report *executionReport
+	if opts.ReportPath != "" {
+		var err error
+		report, err = loadExecutionReport(opts.ReportPath)
+		if err != nil {
+			return nil, err
+		}
+		if report.Env != nil && report.Env.Name != "" {
+			if opts.Env != "" && opts.Env != report.Env.Name {
+				return nil, fmt.Errorf("--env %q は実行レポートの環境 %q と異なります", opts.Env, report.Env.Name)
+			}
+			opts.Env = report.Env.Name
+		}
+		if opts.Suite != "" && opts.Suite != report.Suite {
+			return nil, fmt.Errorf("--suite %q は実行レポートのスイート %q と異なります", opts.Suite, report.Suite)
+		}
+		if opts.Suite == "" && len(opts.RunbookPaths) == 0 {
+			if report.Suite != "" {
+				opts.Suite = report.Suite
+			} else {
+				root := "."
+				if opts.ProjectPath != "" {
+					root = filepath.Dir(opts.ProjectPath)
+				} else if opts.ConfigPath == "" {
+					if found, findErr := project.Find("."); findErr == nil && found != "" {
+						root = filepath.Dir(found)
+					}
+				}
+				for _, run := range report.Results {
+					path := run.Path
+					if !filepath.IsAbs(path) {
+						path = filepath.Join(root, filepath.FromSlash(path))
+					}
+					opts.RunbookPaths = append(opts.RunbookPaths, path)
+				}
+			}
+		}
+	}
 	inputs, planWarnings, err := planInputs(opts)
 	if err != nil {
 		return nil, err
 	}
 	if opts.OutputDir == "" {
-		opts.OutputDir = "generated"
+		if report != nil {
+			opts.OutputDir = "generated-results"
+		} else {
+			opts.OutputDir = "generated"
+		}
 	}
 	outputDir, err := filepath.Abs(opts.OutputDir)
 	if err != nil {
@@ -230,7 +289,37 @@ func Generate(ctx context.Context, opts Options) (*Result, error) {
 		usedFolders[folderID] = scenario.SourcePath
 		result.Warnings = append(result.Warnings, warnings...)
 
-		documents := render.ScenarioDocuments(scenario, opts.ShowJSONDetail)
+		var grades map[string]string
+		var execution *manifestExecution
+		if report != nil {
+			run, findErr := report.find(scenarioID, scenario.SourcePath, in.opts.BaseDir)
+			if findErr != nil {
+				return nil, findErr
+			}
+			var statuses []string
+			var gradeErr error
+			grades, statuses, gradeErr = stepGrades(scenario, run)
+			if gradeErr != nil {
+				return nil, gradeErr
+			}
+			result.Statuses = append(result.Statuses, statuses...)
+			execution = &manifestExecution{
+				Report: reportDisplayPath(in.opts.BaseDir, report.path), SHA256: report.sha256,
+				StartedAt: report.StartedAt, Runnora: report.Runnora, Suite: report.Suite,
+			}
+			if report.Env != nil {
+				execution.Env = report.Env.Name
+			}
+			if run != nil {
+				execution.Actual, execution.Passed = run.Actual, run.Passed
+				for _, hook := range run.Hooks {
+					if !hook.OK {
+						result.Statuses = append(result.Statuses, fmt.Sprintf("%s %s フック失敗: %s", scenario.Name, hook.Phase, hook.File))
+					}
+				}
+			}
+		}
+		documents := render.ScenarioDocumentsWithResults(scenario, opts.ShowJSONDetail, grades)
 		scenarioDir := filepath.Join(outputDir, folderID)
 		manifestFiles := make([]string, 0, len(documents))
 		for _, document := range documents {
@@ -252,6 +341,7 @@ func Generate(ctx context.Context, opts Options) (*Result, error) {
 			Steps:      steps,
 			Files:      manifestFiles,
 			Inputs:     scenario.Sources,
+			Execution:  execution,
 		}, "", "  ")
 		if err != nil {
 			return nil, err

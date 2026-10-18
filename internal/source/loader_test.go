@@ -3,6 +3,7 @@ package source
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/ramsesyok/runnora-docgen/internal/model"
@@ -55,6 +56,26 @@ steps:
 	}
 	if got, want := scenario.Cases[0].Name, "valid"; got != want {
 		t.Fatalf("case name = %q, want %q", got, want)
+	}
+}
+
+func TestLoadPreservesLoopOwnerForIncludedRows(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "main.yml"), `steps:
+  retry:
+    loop: {count: 3, until: current.steps.call.res.status == 200}
+    include: {path: part.yml}
+`)
+	writeTestFile(t, filepath.Join(dir, "part.yml"), `steps:
+  call:
+    test: true
+`)
+	scenario, _, err := Load(filepath.Join(dir, "main.yml"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scenario.Steps) != 1 || scenario.Steps[0].Key != "retry.call" || !reflect.DeepEqual(scenario.Steps[0].LoopKeys, []string{"retry"}) {
+		t.Fatalf("loop owner: %+v", scenario.Steps)
 	}
 }
 

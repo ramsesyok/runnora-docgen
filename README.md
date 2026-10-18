@@ -94,7 +94,8 @@ C:\tools\runnora-docgen.exe generate --env unit --out docs\generated\one runbook
 
 | オプション | 内容 |
 |---|---|
-| `-o, --out` | 生成原稿の出力ディレクトリ（既定: `generated`） |
+| `-o, --out` | 生成原稿の出力ディレクトリ（既定: 手順書は `generated`、成績書は `generated-results`） |
+| `--report` | runnora の `report.json` を読み、良否入りの成績書原稿を生成する |
 | `--project` | `runnora.yaml` のパス（省略時は現在のディレクトリから親へ探す。`--config` を指定したときは探さない） |
 | `--env` | 前後処理に使う環境（`runnora.yaml` の `environments` の名前） |
 | `--suite` | 原稿にするスイート（`runnora.yaml` の `suites` の名前）。runbook の引数とは同時に指定できない |
@@ -110,6 +111,19 @@ C:\tools\runnora-docgen.exe generate --env unit --out docs\generated\one runbook
 `request-json.qmd`、`grpc-request.qmd`、`expectations.qmd`、前後処理原稿を必要に応じて生成します。
 前後処理原稿（`before.qmd`・`after.qmd`）は実行順・ファイル名・出典パスの表で、SQL 本文は掲載しません（表が大きくなり読みにくいため。本文は出典のファイルを参照）。
 既存文書の章立てや `_quarto.yml` は変更しません。
+
+### 試験成績書を生成する
+
+runnora の実行後、生成された `report.json` を指定します。成績書用には手順書と別の `--out` を使い、別の Quarto 文書から原稿を参照してください。表の列と見出しは手順書と同じです。
+
+```powershell
+runnora run --suite scenarios
+runnora-docgen generate --report reports/20261018-120000-scenarios/report.json --out docs/results/generated
+```
+
+`--report` を指定した場合、レポートの環境とスイートを生成条件に使います。スイートなしの実行では、レポートの runbook パスを対象にします。`steps[].result` が `success` なら「良」、`failure` なら「否」を記入します。`skipped` / `notRun` や結果がない手順の良否欄は空欄にし、手順キーと状態をコマンドラインに表示します。繰り返し手順は手順書と同じ1行で、runnora が報告した現在の判定を反映します。前後処理の失敗もコマンドラインに表示します。
+
+成績書の `manifest.json` には、使用したレポートの SHA-256、実行開始日時、環境、スイート、シナリオ全体の結果を記録します。runnora の `report.json` には実行時の runbook や参照ファイルのハッシュがないため、実行後にこれらを変更した場合は、生成内容と実行時の内容が一致することを自動検証できません。
 
 シナリオごとの `manifest.json` には、入力ファイルと SHA-256 のほか、runnora の実行結果と突き合わせるための次の項目を書きます。
 
