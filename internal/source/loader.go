@@ -172,6 +172,12 @@ func (l *loader) loadRunbook(path string) (*model.Scenario, error) {
 			// runnora では suite のステップ (include) を通して呼ぶので、キーはそのステップとつなぐ
 			scenario.Steps[i].Key = includeKey + "." + scenario.Steps[i].Key
 			scenario.Steps[i].Loop = scenario.Steps[i].Loop || includeLoop
+			for j := range scenario.Steps[i].LoopKeys {
+				scenario.Steps[i].LoopKeys[j] = includeKey + "." + scenario.Steps[i].LoopKeys[j]
+			}
+			if includeLoop {
+				scenario.Steps[i].LoopKeys = append([]string{includeKey}, scenario.Steps[i].LoopKeys...)
+			}
 		}
 		for _, ref := range caseRefs {
 			caseValue, caseErr := loadCase(filepath.Dir(abs), ref)
@@ -291,6 +297,12 @@ func (l *loader) parseSteps(root *yaml.Node, sourcePath string, runners []runner
 				childStep.ID = item.id + "." + childStep.ID
 				childStep.Key = item.key + "." + childStep.Key
 				childStep.Loop = childStep.Loop || includeLoop
+				for j := range childStep.LoopKeys {
+					childStep.LoopKeys[j] = item.key + "." + childStep.LoopKeys[j]
+				}
+				if includeLoop {
+					childStep.LoopKeys = append([]string{item.key}, childStep.LoopKeys...)
+				}
 				// 1 ステップだけの template はケースの呼び出しそのものなので、include 側の説明を手順名にする
 				if includeDesc != "" && len(child.Steps) == 1 {
 					childStep.Description = includeDesc
@@ -310,6 +322,9 @@ func (l *loader) parseSteps(root *yaml.Node, sourcePath string, runners []runner
 		}
 		step.Key = item.key
 		step.Loop = mappingValue(item.node, "loop") != nil
+		if step.Loop {
+			step.LoopKeys = []string{step.Key}
+		}
 		result = append(result, step)
 	}
 	for i := range result {

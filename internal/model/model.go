@@ -21,7 +21,9 @@ type Step struct {
 	// include 先は呼び出したステップのキーと . でつなぐ (inc.call)。steps が配列なら 0 始まりの添字。
 	Key string
 	// Loop は runnora の実行で回ごとに結果が分かれるステップ (自身か呼び出したステップに loop がある)。
-	Loop                 bool
+	Loop bool
+	// LoopKeys はこの行を囲む loop ステップのキー。include 先の行でも loop.until の失敗を追えるようにする。
+	LoopKeys             []string
 	Description          string
 	Kind                 StepKind
 	HTTP                 *HTTPRequest

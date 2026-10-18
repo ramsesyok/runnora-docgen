@@ -24,6 +24,9 @@ runnora.yaml は --project で指定するか、現在のディレクトリか�
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.RunbookPaths = args
+			if opts.ReportPath != "" && !cmd.Flags().Changed("out") {
+				opts.OutputDir = "generated-results"
+			}
 			result, err := generator.Generate(cmd.Context(), opts)
 			if err != nil {
 				return err
@@ -34,10 +37,14 @@ runnora.yaml は --project で指定するか、現在のディレクトリか�
 			for _, warning := range result.Warnings {
 				fmt.Fprintf(stderr, "warning: %s\n", warning)
 			}
+			for _, status := range result.Statuses {
+				fmt.Fprintf(stderr, "status: %s\n", status)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&opts.OutputDir, "out", "o", "generated", "生成した .qmd を置くディレクトリ")
+	cmd.Flags().StringVar(&opts.ReportPath, "report", "", "成績書へ反映する runnora の report.json（省略時は手順書を生成）")
 	cmd.Flags().StringVar(&opts.ProjectPath, "project", "", "runnora.yaml のパス (省略時は現在のディレクトリから親へ探す)")
 	cmd.Flags().StringVar(&opts.Env, "env", "", "前後処理に使う環境 (runnora.yaml の environments の名前)")
 	cmd.Flags().StringVar(&opts.Suite, "suite", "", "原稿にするスイート (runnora.yaml の suites の名前)")
